@@ -69,7 +69,7 @@ class QSGCanvasItem;
 class QSGContext2DCommandBuffer;
 class QDeclarativePixmap;
 
-class QSGContext2D
+class Q_DECLARATIVE_EXPORT QSGContext2D
 {
 public:
     enum TextBaseLineType { Alphabetic=0, Top, Middle, Bottom, Hanging};

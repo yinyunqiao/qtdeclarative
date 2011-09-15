@@ -78,6 +78,7 @@ SGTESTS =  \
 #   qsgtextedit \
 #   qsgtextinput \
     qsgvisualdatamodel \
+    qsgcanvasitem \
 
 
 SUBDIRS += $$PUBLICTESTS
@@ -93,4 +94,3 @@ contains(QT_CONFIG, private_tests) {
 
 # Tests which should run in Pulse
 PULSE_TESTS = $$SUBDIRS
-

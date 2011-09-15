@@ -105,69 +105,79 @@ static const double Q_PI   = 3.14159265358979323846;   // pi
 
 QColor qt_color_from_string(const QString& name)
 {
-    if (name.isEmpty() || name.size() > 255)
-        return QColor();
-
-    if (name[0] == '#') {
+    //rgb/hsl color string has at least 7 characters
+    if (name.isEmpty() || name.size() > 255 || name.size() <= 7)
         return QColor(name);
-    } else {
-        char name_no_space[256];
-        int pos = 0;
-        int len = name.size();
+    else {
+        const char* data = name.toLatin1().constData();
         bool isRgb = false, isHsl = false, hasAlpha = false;
 
-        int colorElements[4];
-        int idx[4];
-        int isPercentage[4] = {false, false, false, false};
-        int index = 0;
+        int pos = 0;
+        while(isspace(data[pos])) pos++;
 
-        for (int i = 0; i < len; i++) {
-            if (name[i] != QLatin1Char('\t') && name[i] != QLatin1Char(' ')) {
-                name_no_space[pos++] = name[i].toLatin1();
-                if (pos == 4 || pos == 5) {
-                    if (strncmp(name_no_space, "rgb", 3) == 0)
-                        isRgb = true;
-                    else if (strncmp(name_no_space, "hsl", 3) == 0)
-                        isHsl = true;
-                    else {
-                        return QColor(name);
-                    }
-                    if (name_no_space[3] == 'a')
-                        hasAlpha = true;
-                }
-
-                if (name_no_space[pos - 1] == '(') {
-                    index = 0;
-                    idx[index++] = pos;
-                } else if (name_no_space[pos - 1] == ',') {
-                    idx[index++] = pos;
-                    if (index > 4)
-                        return QColor();
-                } else if (index && name_no_space[pos - 1] == '%') {
-                    isPercentage[index - 1] = true;
-                } else if (name_no_space[pos - 1] == ')')
-                    break;
-            }
-        }
-        name_no_space[pos] = 0;
-        if ( (hasAlpha && index != 4) || !(hasAlpha && index != 3))
-            return QColor(name);
-
-        colorElements[0] = qClamp(isPercentage[0] ? (atoi(&name_no_space[idx[0]])/100.0 * 255) : atoi(&name_no_space[idx[0]]), 0.0, 255.0);
-        colorElements[1] = qClamp(isPercentage[1] ? (atoi(&name_no_space[idx[1]])/100.0 * 255) : atoi(&name_no_space[idx[1]]), 0.0, 255.0);
-        colorElements[2] = qClamp(isPercentage[2] ? (atoi(&name_no_space[idx[2]])/100.0 * 255) : atoi(&name_no_space[idx[2]]), 0.0, 255.0);
-        if (hasAlpha)
-            colorElements[3] = qClamp(isPercentage[3]? strtof(&name_no_space[idx[3]], 0)/100.0 * 255 : strtof(&name_no_space[idx[3]], 0) * 255, 0.0, 255.0);
+        if (strncmp(&(data[pos]), "rgb", 3) == 0)
+            isRgb = true;
+        else if (strncmp(&(data[pos]), "hsl", 3) == 0)
+            isHsl = true;
         else
-            colorElements[3] = 255;
+            return QColor(name);
+        pos+=3;
+        if (data[pos] == 'a')
+            hasAlpha = true;
 
-        if (isRgb) {
-            return QColor::fromRgb(colorElements[0], colorElements[1], colorElements[2], colorElements[3]);
-        } else {
-            return QColor::fromHsl(colorElements[0], colorElements[1], colorElements[2], colorElements[3]);
+        int rh, gs, bl, alpha = 255;
+
+        const int len = name.size();
+        while(pos < len && (data[pos] != '(' || isspace(data[pos]))) pos++;
+        if (pos >= len) return QColor();
+
+        //red
+        while(pos < len && !isdigit(data[pos])) pos++;
+        if (pos >= len) return QColor();
+        rh = atoi(&(data[pos]));
+        while(pos < len && ((data[pos] != ',' && data[pos] != '%') || isspace(data[pos]))) pos++;
+        if (data[pos] == '%') {
+            rh = qRound(rh/100.0 * 255);
+            pos++;
         }
+        //green
+        while(pos < len && !isdigit(data[pos])) pos++;
+        qDebug() << "pos" << pos << " in string" << name << " len:" << len;
+        if (pos >= len) return QColor();
+        gs = atoi(&(data[pos]));
+        while(pos < len && ((data[pos] != ',' && data[pos] != '%') || isspace(data[pos]))) pos++;
+        if (data[pos] == '%') {
+            gs = qRound(gs/100.0 * 255);
+            pos++;
+        }
+
+        qDebug() << "green:" << gs;
+        //blue
+        while(pos < len && !isdigit(data[pos])) pos++;
+        if (pos >= len)
+            return QColor();
+        bl = atoi(&(data[pos]));
+        while(pos < len && ((data[pos] != ',' && data[pos] != '%') || isspace(data[pos]))) pos++;
+        if (data[pos] == '%') {
+            bl = qRound(bl/100.0 * 255);
+            pos++;
+        }
+        qDebug() << "blue:" << bl;
+
+        if (hasAlpha) {
+            while(pos < len && !isdigit(data[pos])) pos++;
+            if (pos >= len)
+                return QColor();
+            alpha = qRound(strtof(&(data[pos]), 0) * 255);
+        }
+        qDebug() << "alpha:" << alpha;
+
+        if (isRgb)
+            return QColor::fromRgba(qRgba(qClamp(rh, 0, 255), qClamp(gs, 0, 255), qClamp(bl, 0, 255), qClamp(alpha, 0, 255)));
+        else
+            return QColor::fromHsl(qClamp(rh, 0, 255), qClamp(gs, 0, 255), qClamp(bl, 0, 255), qClamp(alpha, 0, 255));
     }
-    return QColor(name);
+    return QColor();
 }
 
 QFont qt_font_from_string(const QString& fontString) {
