@@ -95,204 +95,75 @@ QT_BEGIN_NAMESPACE
 static const double Q_PI   = 3.14159265358979323846;   // pi
 
 #define DEGREES(t) ((t) * 180.0 / Q_PI)
-#define qClamp(val, min, max) qMin(qMax(val, min), max)
 
 #define CHECK_CONTEXT(r)     if (!r || !r->context || !r->context->buffer()) \
                                 V8THROW_ERROR("Not a Context2D object");
 
 #define CHECK_CONTEXT_SETTER(r)     if (!r || !r->context || !r->context->buffer()) \
                                        V8THROW_ERROR_SETTER("Not a Context2D object");
+#define qClamp(val, min, max) qMin(qMax(val, min), max)
 
-static inline int extractInt(const char **name)
+QColor qt_color_from_string(const QString& name)
 {
-    int result = 0;
-    bool negative = false;
+    if (name.size() > 255)
+        return QColor();
 
-    //eat leading whitespace
-    while (isspace(*name[0]))
-        ++*name;
+    if (name[0] == '#') {
+        return QColor(name);
+    } else {
+        char name_no_space[256];
+        int pos = 0;
+        int len = name.size();
+        bool isRgb = false, isHsl = false, hasAlpha = false;
 
-    if (*name[0] == '-') {
-        ++*name;
-        negative = true;
-    } /*else if (name[0] == '+')
-        ++name;     //ignore*/
+        int colorElements[4];
+        int idx[4];
+        int isPercentage[4] = {false, false, false, false};
+        int index = 0;
 
-    //construct number
-    while (isdigit(*name[0])) {
-        result = result * 10 + (*name[0] - '0');
-        ++*name;
+        for (int i = 0; i < len; i++) {
+            if (name[i] != QLatin1Char('\t') && name[i] != QLatin1Char(' ')) {
+                name_no_space[pos++] = name[i].toLatin1();
+                if (pos == 4 || pos == 5) {
+                    if (strncmp(name_no_space, "rgb", 3) == 0)
+                        isRgb = true;
+                    else if (strncmp(name_no_space, "hsl", 3) == 0)
+                        isHsl = true;
+                    else {
+                        return QColor(name);
+                    }
+                    if (name_no_space[3] == 'a')
+                        hasAlpha = true;
+                }
+
+                if (name_no_space[pos - 1] == '(') {
+                    idx[index++] = pos;
+                } else if (name_no_space[pos - 1] == ',') {
+                    idx[index++] = pos;
+                } else if (index && name_no_space[pos - 1] == '%') {
+                    isPercentage[index - 1] = true;
+                } else if (name_no_space[pos - 1] == ')')
+                    break;
+            }
+        }
+        name_no_space[pos] = 0;
+        if ( (hasAlpha && index != 4) || !(hasAlpha && index != 3))
+            return QColor(name);
+
+        colorElements[0] = qClamp(isPercentage[0] ? (atoi(&name_no_space[idx[0]])/100.0 * 255) : atoi(&name_no_space[idx[0]]), 0.0, 255.0);
+        colorElements[1] = qClamp(isPercentage[1] ? (atoi(&name_no_space[idx[1]])/100.0 * 255) : atoi(&name_no_space[idx[1]]), 0.0, 255.0);
+        colorElements[2] = qClamp(isPercentage[2] ? (atoi(&name_no_space[idx[2]])/100.0 * 255) : atoi(&name_no_space[idx[2]]), 0.0, 255.0);
+        if (hasAlpha)
+            colorElements[3] = qClamp(isPercentage[3]? strtof(&name_no_space[idx[3]], 0)/100.0 * 255 : strtof(&name_no_space[idx[3]], 0) * 255, 0.0, 255.0);
+        else
+            colorElements[3] = 255;
+
+        if (isRgb) {
+            return QColor::fromRgb(colorElements[0], colorElements[1], colorElements[2], colorElements[3]);
+        } else {
+            return QColor::fromHsl(colorElements[0], colorElements[1], colorElements[2], colorElements[3]);
+        }
     }
-    if (negative)
-        result = -result;
-
-    //handle optional percentage
-    if (*name[0] == '%')
-        result *= qreal(255)/100;  //### floor or round?
-
-    //eat trailing whitespace
-    while (isspace(*name[0]))
-        ++*name;
-
-    return result;
-}
-
-static bool qt_get_rgb(const QString &string, QRgb *rgb)
-{
-    const char *name = string.toLatin1().constData();
-    int len = qstrlen(name);
-
-    if (len < 5)
-        return false;
-
-    bool handleAlpha = false;
-
-    if (name[0] != 'r')
-        return false;
-    if (name[1] != 'g')
-        return false;
-    if (name[2] != 'b')
-        return false;
-    if (name[3] == 'a') {
-        handleAlpha = true;
-        if(name[3] != '(')
-            return false;
-    } else if (name[3] != '(')
-        return false;
-
-    name += 4;
-
-    int r, g, b, a = 1;
-    int result;
-
-    //red
-    result = extractInt(&name);
-    if (name[0] == ',') {
-        r = result;
-        ++name;
-    } else
-        return false;
-
-    //green
-    result = extractInt(&name);
-    if (name[0] == ',') {
-        g = result;
-        ++name;
-    } else
-        return false;
-
-    char nextChar = handleAlpha ? ',' : ')';
-
-    //blue
-    result = extractInt(&name);
-    if (name[0] == nextChar) {
-        b = result;
-        ++name;
-    } else
-        return false;
-
-    //alpha
-    if (handleAlpha) {
-        result = extractInt(&name);
-        if (name[0] == ')') {
-            a = result * 255;   //map 0-1 to 0-255
-            ++name;
-        } else
-            return false;
-    }
-
-    if (name[0] != '\0')
-        return false;
-
-    *rgb = qRgba(qClamp(r,0,255), qClamp(g,0,255), qClamp(b,0,255), qClamp(a,0,255));
-    return true;
-}
-
-//### unify with qt_get_rgb?
-static bool qt_get_hsl(const QString &string, QColor *color)
-{
-    const char *name = string.toLatin1().constData();
-    int len = qstrlen(name);
-
-    if (len < 5)
-        return false;
-
-    bool handleAlpha = false;
-
-    if (name[0] != 'h')
-        return false;
-    if (name[1] != 's')
-        return false;
-    if (name[2] != 'l')
-        return false;
-    if (name[3] == 'a') {
-        handleAlpha = true;
-        if(name[3] != '(')
-            return false;
-    } else if (name[3] != '(')
-        return false;
-
-    name += 4;
-
-    int h, s, l, a = 1;
-    int result;
-
-    //hue
-    result = extractInt(&name);
-    if (name[0] == ',') {
-        h = result;
-        ++name;
-    } else
-        return false;
-
-    //saturation
-    result = extractInt(&name);
-    if (name[0] == ',') {
-        s = result;
-        ++name;
-    } else
-        return false;
-
-    char nextChar = handleAlpha ? ',' : ')';
-
-    //lightness
-    result = extractInt(&name);
-    if (name[0] == nextChar) {
-        l = result;
-        ++name;
-    } else
-        return false;
-
-    //alpha
-    if (handleAlpha) {
-        result = extractInt(&name);
-        if (name[0] == ')') {
-            a = result * 255;   //map 0-1 to 0-255
-            ++name;
-        } else
-            return false;
-    }
-
-    if (name[0] != '\0')
-        return false;
-
-    *color = QColor::fromHsl(qClamp(h,0,255), qClamp(s,0,255), qClamp(l,0,255), qClamp(a,0,255));
-    return true;
-}
-
-//### optimize further
-QColor qt_color_from_string(const QString &name)
-{
-    if (name.startsWith(QLatin1String("rgb"))) {
-        QRgb rgb;
-        if (qt_get_rgb(name, &rgb))
-            return QColor(rgb);
-    } else if (name.startsWith(QLatin1String("hsl"))) {
-        QColor color;
-        if (qt_get_hsl(name, &color))
-            return color;
-    }
-
     return QColor(name);
 }
 
