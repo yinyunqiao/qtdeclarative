@@ -105,7 +105,7 @@ static const double Q_PI   = 3.14159265358979323846;   // pi
 
 QColor qt_color_from_string(const QString& name)
 {
-    if (name.size() > 255)
+    if (name.isEmpty() || name.size() > 255)
         return QColor();
 
     if (name[0] == '#') {
@@ -137,9 +137,12 @@ QColor qt_color_from_string(const QString& name)
                 }
 
                 if (name_no_space[pos - 1] == '(') {
+                    index = 0;
                     idx[index++] = pos;
                 } else if (name_no_space[pos - 1] == ',') {
                     idx[index++] = pos;
+                    if (index > 4)
+                        return QColor();
                 } else if (index && name_no_space[pos - 1] == '%') {
                     isPercentage[index - 1] = true;
                 } else if (name_no_space[pos - 1] == ')')
