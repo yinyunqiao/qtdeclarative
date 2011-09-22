@@ -80,10 +80,21 @@ private slots:
     void context2d_images();
     void context2d_imageData();
 private:
+    QSGView* createView(const QString& file);
 };
 
 tst_qsgcanvasitem::tst_qsgcanvasitem()
 {
+}
+
+QSGView* tst_qsgcanvasitem::createView(const QString &file)
+{
+    QSGView *view = new QSGView;
+    view->setSource(QUrl::fromLocalFile(file));
+    view->show();
+    view->requestActivateWindow();
+    QTest::qWait(50);
+    return view;
 }
 
 void tst_qsgcanvasitem::initTestCase()
@@ -136,10 +147,10 @@ void tst_qsgcanvasitem::context2d_compositing()
 
 void tst_qsgcanvasitem::context2d_colors()
 {
-    QSGView *view = new QSGView;
-    view->setSource(QUrl::fromLocalFile("data/color.qml"));
+    QSGView *view = createView(QStringLiteral("data/color.qml"));
+    QTRY_COMPARE(QGuiApplication::activeWindow(), static_cast<QWindow *>(view));
+
     QSGCanvasItem *root = static_cast<QSGCanvasItem*>(view->rootObject());
-    view->show();
 
     QVERIFY(root != 0);
     QSGContext2D* ctx = root->context();
@@ -199,6 +210,12 @@ void tst_qsgcanvasitem::context2d_shadows()
 }
 void tst_qsgcanvasitem::context2d_rects()
 {
+    QSGView *view = createView(QStringLiteral("data/fillrect.qml"));
+    QTRY_COMPARE(QGuiApplication::activeWindow(), static_cast<QWindow *>(view));
+    QObject *obj = view->rootObject();
+
+    QVERIFY(obj != 0);
+    QVERIFY(obj->property("ok").toBool());
 }
 void tst_qsgcanvasitem::context2d_texts()
 {
