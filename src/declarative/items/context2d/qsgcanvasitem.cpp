@@ -420,7 +420,8 @@ void QSGCanvasItem::componentComplete()
     createContext();
     createTexture();
 
-    markDirty(d->canvasWindow);
+
+    _doPainting(canvasWindow());
     QSGItem::componentComplete();
 
     d->baseUrl = qmlEngine(this)->contextForObject(this)->baseUrl();
@@ -446,6 +447,7 @@ void QSGCanvasItem::updatePolish()
 
 QSGNode *QSGCanvasItem::updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *)
 {
+    qDebug() << "QSGCanvasItem::updatePaintNode";
     Q_D(QSGCanvasItem);
     QSGContext2DNode *node = static_cast<QSGContext2DNode *>(oldNode);
     if (!node)
