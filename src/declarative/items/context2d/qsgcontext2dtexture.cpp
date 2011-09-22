@@ -566,8 +566,9 @@ QPaintDevice* QSGContext2DFBOTexture::beginPainting()
 
     m_fbo->bind();
 
-    if (!m_paint_device)
+    if (!m_paint_device) {
         m_paint_device = new QOpenGLPaintDevice(m_fbo->size());
+    }
 
     return m_paint_device;
 }

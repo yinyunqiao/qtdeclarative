@@ -110,6 +110,9 @@ void QSGContext2DFBOTile::aboutToDraw()
     m_fbo->bind();
     if (!m_device) {
         m_device = new QOpenGLPaintDevice(rect().size());
+        QPainter p(m_device);
+        p.fillRect(QRectF(0, 0, m_fbo->width(), m_fbo->height()), Qt::transparent);
+        p.end();
     }
 }
 
