@@ -109,68 +109,76 @@ QColor qt_color_from_string(const QString& name)
     if (name.isEmpty() || name.size() > 255 || name.size() <= 7)
         return QColor(name);
     else {
-        const char* data = name.toLatin1().constData();
+        char* p = const_cast<char*>(name.toLatin1().constData());
         bool isRgb = false, isHsl = false, hasAlpha = false;
+        while(isspace(*p)) p++;
 
-        int pos = 0;
-        while(isspace(data[pos])) pos++;
-
-        if (strncmp(&(data[pos]), "rgb", 3) == 0)
+        if (strncmp(p, "rgb", 3) == 0)
             isRgb = true;
-        else if (strncmp(&(data[pos]), "hsl", 3) == 0)
+        else if (strncmp(p, "hsl", 3) == 0)
             isHsl = true;
         else
             return QColor(name);
-        pos+=3;
-        if (data[pos] == 'a')
+
+        p+=3;
+        if (*p == 'a') {
             hasAlpha = true;
+            p++;
+        }
+
+        if (*p != '(')
+            return QColor();
+        p++;
 
         int rh, gs, bl, alpha = 255;
 
-        const int len = name.size();
-        while(pos < len && (data[pos] != '(' || isspace(data[pos]))) pos++;
-        if (pos >= len) return QColor();
-
-        //red
-        while(pos < len && !isdigit(data[pos])) pos++;
-        if (pos >= len) return QColor();
-        rh = atoi(&(data[pos]));
-        while(pos < len && ((data[pos] != ',' && data[pos] != '%') || isspace(data[pos]))) pos++;
-        if (data[pos] == '%') {
-            rh = qRound(rh/100.0 * 255);
-            pos++;
-        }
-        //green
-        while(pos < len && !isdigit(data[pos])) pos++;
-        qDebug() << "pos" << pos << " in string" << name << " len:" << len;
-        if (pos >= len) return QColor();
-        gs = atoi(&(data[pos]));
-        while(pos < len && ((data[pos] != ',' && data[pos] != '%') || isspace(data[pos]))) pos++;
-        if (data[pos] == '%') {
-            gs = qRound(gs/100.0 * 255);
-            pos++;
+        while(isspace(*p)) p++;
+        rh = strtol(p, &p, 10);
+        if (*p == '%') {
+            rh = qRound(rh/100.0 * 255.0);
+            p++;
         }
 
-        qDebug() << "green:" << gs;
-        //blue
-        while(pos < len && !isdigit(data[pos])) pos++;
-        if (pos >= len)
+        while(isspace(*p)) p++;
+
+        if (*p != ',')
             return QColor();
-        bl = atoi(&(data[pos]));
-        while(pos < len && ((data[pos] != ',' && data[pos] != '%') || isspace(data[pos]))) pos++;
-        if (data[pos] == '%') {
-            bl = qRound(bl/100.0 * 255);
-            pos++;
-        }
-        qDebug() << "blue:" << bl;
 
-        if (hasAlpha) {
-            while(pos < len && !isdigit(data[pos])) pos++;
-            if (pos >= len)
-                return QColor();
-            alpha = qRound(strtof(&(data[pos]), 0) * 255);
+
+        p++;
+        while(isspace(*p)) p++;
+        gs = strtol(p, &p, 10);
+        if (*p == '%') {
+            gs = qRound(gs/100.0 * 255.0);
+            p++;
         }
-        qDebug() << "alpha:" << alpha;
+
+        while(isspace(*p)) p++;
+
+        if (*p != ',')
+            return QColor();
+
+        p++;
+        while(isspace(*p)) p++;
+        bl = strtol(p, &p, 10);
+        if (*p == '%') {
+            bl = qRound(bl/100.0 * 255.0);
+            p++;
+        }
+        while(isspace(*p)) p++;
+
+
+        if (!hasAlpha && *p != ')')
+            return QColor();
+        else if (hasAlpha) {
+            if (*p != ',')
+                return QColor();
+            p++;
+            alpha = qRound(strtod(p, &p) * 255);
+            while(isspace(*p)) p++;
+            if (*p != ')')
+                return QColor();
+        }
 
         if (isRgb)
             return QColor::fromRgba(qRgba(qClamp(rh, 0, 255), qClamp(gs, 0, 255), qClamp(bl, 0, 255), qClamp(alpha, 0, 255)));
@@ -232,8 +240,14 @@ class QV8Context2DStyleResource : public QV8ObjectResource
 {
     V8_RESOURCE_TYPE(Context2DStyleType)
 public:
-    QV8Context2DStyleResource(QV8Engine *e) : QV8ObjectResource(e) {}
+    QV8Context2DStyleResource(QV8Engine *e)
+      : QV8ObjectResource(e)
+      , patternRepeatX(false)
+      , patternRepeatY(false)
+    {}
     QBrush brush;
+    bool patternRepeatX:1;
+    bool patternRepeatY:1;
 };
 
 class QV8Context2DPixelArrayResource : public QV8ObjectResource
@@ -412,10 +426,10 @@ static v8::Local<v8::Object> qt_create_image_data(qreal w, qreal h, QV8Engine* e
     QV8Context2DPixelArrayResource *r = new QV8Context2DPixelArrayResource(engine);
     if (image.isNull()) {
         r->image = QImage(w, h, QImage::Format_ARGB32);
-        r->image.fill(Qt::transparent);
+        r->image.fill(0x00000000);
     } else {
         Q_ASSERT(image.width() == w && image.height() == h);
-        r->image = image;
+        r->image = image.format() == QImage::Format_ARGB32 ? image : image.convertToFormat(QImage::Format_ARGB32);
     }
     v8::Local<v8::Object> pixelData = ed->constructorPixelArray->NewInstance();
     pixelData->SetExternalResource(r);
@@ -821,6 +835,19 @@ static v8::Handle<v8::Value> ctx2d_fillStyle(v8::Local<v8::String>, const v8::Ac
     QV8Context2DResource *r = v8_resource_cast<QV8Context2DResource>(info.This());
     CHECK_CONTEXT(r)
 
+    QV8Engine *engine = V8ENGINE_ACCESSOR();
+
+    QColor color = r->context->state.fillStyle.color();
+    if (color.isValid()) {
+        if (color.alpha() == 255)
+            return engine->toString(color.name());
+        QString alphaString = QString::number(color.alphaF(), 'f');
+        while (alphaString.endsWith('0'))
+            alphaString.chop(1);
+        if (alphaString.endsWith('.'))
+            alphaString += '0';
+        return engine->toString(QString::fromLatin1("rgba(%1, %2, %3, %4)").arg(color.red()).arg(color.green()).arg(color.blue()).arg(alphaString));
+    }
     return r->context->m_fillStyle;
 }
 
@@ -831,17 +858,20 @@ static void ctx2d_fillStyle_set(v8::Local<v8::String>, v8::Local<v8::Value> valu
 
     QV8Engine *engine = V8ENGINE_ACCESSOR();
 
-   r->context->m_fillStyle = value;
    if (value->IsObject()) {
        QColor color = engine->toVariant(value, qMetaTypeId<QColor>()).value<QColor>();
        if (color.isValid()) {
            r->context->state.fillStyle = color;
            r->context->buffer()->setFillStyle(color);
+           r->context->m_fillStyle = value;
        } else {
            QV8Context2DStyleResource *style = v8_resource_cast<QV8Context2DStyleResource>(value->ToObject());
            if (style && style->brush != r->context->state.fillStyle) {
                r->context->state.fillStyle = style->brush;
-               r->context->buffer()->setFillStyle(style->brush);
+               r->context->buffer()->setFillStyle(style->brush, style->patternRepeatX, style->patternRepeatY);
+               r->context->m_fillStyle = value;
+               r->context->state.fillPatternRepeatX = style->patternRepeatX;
+               r->context->state.fillPatternRepeatY = style->patternRepeatY;
            }
        }
    } else if (value->IsString()) {
@@ -849,6 +879,7 @@ static void ctx2d_fillStyle_set(v8::Local<v8::String>, v8::Local<v8::Value> valu
        if (color.isValid() && r->context->state.fillStyle != QBrush(color)) {
             r->context->state.fillStyle = QBrush(color);
             r->context->buffer()->setFillStyle(r->context->state.fillStyle);
+            r->context->m_fillStyle = value;
        }
    }
 }
@@ -909,7 +940,19 @@ v8::Handle<v8::Value> ctx2d_strokeStyle(v8::Local<v8::String>, const v8::Accesso
     QV8Context2DResource *r = v8_resource_cast<QV8Context2DResource>(info.This());
     CHECK_CONTEXT(r)
 
+    QV8Engine *engine = V8ENGINE_ACCESSOR();
 
+    QColor color = r->context->state.strokeStyle.color();
+    if (color.isValid()) {
+        if (color.alpha() == 255)
+            return engine->toString(color.name());
+        QString alphaString = QString::number(color.alphaF(), 'f');
+        while (alphaString.endsWith('0'))
+            alphaString.chop(1);
+        if (alphaString.endsWith('.'))
+            alphaString += '0';
+        return engine->toString(QString::fromLatin1("rgba(%1, %2, %3, %4)").arg(color.red()).arg(color.green()).arg(color.blue()).arg(alphaString));
+    }
     return r->context->m_strokeStyle;
 }
 
@@ -920,17 +963,21 @@ static void ctx2d_strokeStyle_set(v8::Local<v8::String>, v8::Local<v8::Value> va
 
     QV8Engine *engine = V8ENGINE_ACCESSOR();
 
-    r->context->m_strokeStyle = value;
     if (value->IsObject()) {
         QColor color = engine->toVariant(value, qMetaTypeId<QColor>()).value<QColor>();
         if (color.isValid()) {
             r->context->state.fillStyle = color;
             r->context->buffer()->setStrokeStyle(color);
+            r->context->m_strokeStyle = value;
         } else {
             QV8Context2DStyleResource *style = v8_resource_cast<QV8Context2DStyleResource>(value->ToObject());
             if (style && style->brush != r->context->state.strokeStyle) {
                 r->context->state.strokeStyle = style->brush;
-                r->context->buffer()->setStrokeStyle(style->brush);
+                r->context->buffer()->setStrokeStyle(style->brush, style->patternRepeatX, style->patternRepeatY);
+                r->context->m_strokeStyle = value;
+                r->context->state.strokePatternRepeatX = style->patternRepeatX;
+                r->context->state.strokePatternRepeatY = style->patternRepeatY;
+
             }
         }
     } else if (value->IsString()) {
@@ -938,6 +985,7 @@ static void ctx2d_strokeStyle_set(v8::Local<v8::String>, v8::Local<v8::Value> va
         if (color.isValid() && r->context->state.strokeStyle != QBrush(color)) {
              r->context->state.strokeStyle = QBrush(color);
              r->context->buffer()->setStrokeStyle(r->context->state.strokeStyle);
+             r->context->m_strokeStyle = value;
         }
     }
 }
@@ -953,6 +1001,7 @@ static void ctx2d_strokeStyle_set(v8::Local<v8::String>, v8::Local<v8::Value> va
 
     \sa QtQuick2::Context2D::CanvasGradient::addColorStop
     \sa QtQuick2::Context2D::createRadialGradient
+    \sa QtQuick2::Context2D::ctx2d_createConicalGradient
     \sa QtQuick2::Context2D::createPattern
     \sa QtQuick2::Context2D::fillStyle
     \sa QtQuick2::Context2D::strokeStyle
@@ -989,6 +1038,7 @@ static v8::Handle<v8::Value> ctx2d_createLinearGradient(const v8::Arguments &arg
 
     \sa QtQuick2::Context2D::CanvasGradient::addColorStop
     \sa QtQuick2::Context2D::createLinearGradient
+    \sa QtQuick2::Context2D::ctx2d_createConicalGradient
     \sa QtQuick2::Context2D::createPattern
     \sa QtQuick2::Context2D::fillStyle
     \sa QtQuick2::Context2D::strokeStyle
@@ -1016,6 +1066,45 @@ static v8::Handle<v8::Value> ctx2d_createRadialGradient(const v8::Arguments &arg
         //TODO:infinite or NaN, a NOT_SUPPORTED_ERR exception must be raised.
         //If either of r0 or r1 are negative, an INDEX_SIZE_ERR exception must be raised.
         r->brush = QRadialGradient(QPointF(x1, y1), r0+r1, QPointF(x0, y0));
+        gradient->SetExternalResource(r);
+        return gradient;
+    }
+
+    return args.This();
+}
+
+/*!
+  \qmlmethod QtQuick2::Context2D QtQuick2::Context2D::createConicalGradient(real x, real y, real angle)
+   Returns a CanvasGradient object that represents a conical gradient that interpolate colors counter-clockwise around a center point (\c x, \c y)
+   with start angle \c angle in units of radians.
+
+    \sa QtQuick2::Context2D::CanvasGradient::addColorStop
+    \sa QtQuick2::Context2D::createLinearGradient
+    \sa QtQuick2::Context2D::ctx2d_createRadialGradient
+    \sa QtQuick2::Context2D::createPattern
+    \sa QtQuick2::Context2D::fillStyle
+    \sa QtQuick2::Context2D::strokeStyle
+  */
+
+static v8::Handle<v8::Value> ctx2d_createConicalGradient(const v8::Arguments &args)
+{
+    QV8Context2DResource *r = v8_resource_cast<QV8Context2DResource>(args.This());
+    CHECK_CONTEXT(r)
+
+
+    QV8Engine *engine = V8ENGINE();
+
+    if (args.Length() == 6) {
+        QSGContext2DEngineData *ed = engineData(engine);
+        v8::Local<v8::Object> gradient = ed->constructorGradient->NewInstance();
+        QV8Context2DStyleResource *r = new QV8Context2DStyleResource(engine);
+
+        qreal x = args[0]->NumberValue();
+        qreal y = args[1]->NumberValue();
+        qreal angle = DEGREES(args[2]->NumberValue());
+        //TODO:infinite or NaN, a NOT_SUPPORTED_ERR exception must be raised.
+        //If either of r0 or r1 are negative, an INDEX_SIZE_ERR exception must be raised.
+        r->brush = QConicalGradient(x, y, angle);
         gradient->SetExternalResource(r);
         return gradient;
     }
@@ -1073,43 +1162,57 @@ static v8::Handle<v8::Value> ctx2d_createPattern(const v8::Arguments &args)
 
     QV8Engine *engine = V8ENGINE();
 
-    //FIXME::
+    if (args.Length() == 2) {
+        QSGContext2DEngineData *ed = engineData(engine);
+        QV8Context2DStyleResource *styleResouce = new QV8Context2DStyleResource(engine);
 
-//    if (args.Length() == 2) {
-//        QSGContext2DEngineData *ed = engineData(engine);
-//        v8::Local<v8::Object> pattern = ed->constructorPattern->NewInstance();
-//        QV8Context2DStyleResource *r = new QV8Context2DStyleResource(engine);
+        QColor color = engine->toVariant(args[0], qMetaTypeId<QColor>()).value<QColor>();
+        if (color.isValid()) {
+            int patternMode = args[1]->IntegerValue();
+            Qt::BrushStyle style = Qt::SolidPattern;
+            if (patternMode >= 0 && patternMode < Qt::LinearGradientPattern) {
+                style = static_cast<Qt::BrushStyle>(patternMode);
+            }
+            styleResouce->brush = QBrush(color, style);
+        } else {
+            QImage patternTexture;
 
-//        QImage img;
+            if (args[0]->IsObject()) {
+                QV8Context2DPixelArrayResource *pixelData = v8_resource_cast<QV8Context2DPixelArrayResource>(args[0]->ToObject()->Get(v8::String::New("data"))->ToObject());
+                if (pixelData) {
+                    patternTexture = pixelData->image;
+                }
+            } else {
+                patternTexture = r->context->createImage(QUrl(engine->toString(args[0]->ToString())));
+            }
 
-//        QSGItem* item = qobject_cast<QSGItem*>(engine->toQObject(args[0]));
-//        if (item) {
-//            img = qt_item_to_image(item);
-//            if (img.isNull()) {
-//                //exception: INVALID_STATE_ERR
-//            }
-//        } /*else {
-//            //exception: TYPE_MISMATCH_ERR
-//        }*/
+            if (!patternTexture.isNull()) {
+                styleResouce->brush.setTextureImage(patternTexture);
 
-//        QString repetition = engine->toString(args[1]);
+                QString repetition = engine->toString(args[1]);
+                if (repetition == "repeat" || repetition.isEmpty()) {
+                    styleResouce->patternRepeatX = true;
+                    styleResouce->patternRepeatY = true;
+                } else if (repetition == "repeat-x") {
+                    styleResouce->patternRepeatX = true;
+                } else if (repetition == "repeat-y") {
+                    styleResouce->patternRepeatY = true;
+                } else if (repetition == "no-repeat") {
+                    styleResouce->patternRepeatY = false;
+                    styleResouce->patternRepeatY = false;
+                } else {
+                    //TODO: exception: SYNTAX_ERR
+                }
 
-//        if (repetition == "repeat" || repetition.isEmpty()) {
-//            //TODO
-//        } else if (repetition == "repeat-x") {
-//            //TODO
-//        } else if (repetition == "repeat-y") {
-//            //TODO
-//        } else if (repetition == "no-repeat") {
-//            //TODO
-//        } else {
-//            //TODO: exception: SYNTAX_ERR
-//        }
-//        r->brush = img;
-//        pattern->SetExternalResource(r);
- //       return pattern;
-//    }
-    return v8::Null();
+            }
+        }
+
+        v8::Local<v8::Object> pattern = ed->constructorPattern->NewInstance();
+        pattern->SetExternalResource(styleResouce);
+        return pattern;
+
+    }
+    return v8::Undefined();
 }
 
 // line styles
@@ -2375,7 +2478,7 @@ static v8::Handle<v8::Value> ctx2d_imageData_filter(const v8::Arguments &args)
         switch(filterFlag) {
         case QSGCanvasItem::Mono :
         {
-            r->image = r->image.convertToFormat(QImage::Format_Mono).convertToFormat(QImage::Format_ARGB32);
+            r->image = r->image.convertToFormat(QImage::Format_Mono).convertToFormat(QImage::Format_ARGB32_Premultiplied);
         }
             break;
         case QSGCanvasItem::GrayScale :
@@ -2495,9 +2598,8 @@ v8::Handle<v8::Value> ctx2d_pixelArray_indexed(uint32_t index, const v8::Accesso
 {
     QV8Context2DPixelArrayResource *r = v8_resource_cast<QV8Context2DPixelArrayResource>(args.This());
 
-    if (r && index && index < r->image.width() * r->image.height() * 4) {
+    if (r && index >= 0 && index < r->image.width() * r->image.height() * 4) {
         const int w = r->image.width();
-        const int h = r->image.height();
         const int row = (index / 4) / w;
         const int col = (index / 4) % w;
         const QRgb* pixel = reinterpret_cast<const QRgb*>(r->image.constScanLine(row));
@@ -2521,9 +2623,8 @@ v8::Handle<v8::Value> ctx2d_pixelArray_indexed_set(uint32_t index, v8::Local<v8:
     QV8Context2DPixelArrayResource *r = v8_resource_cast<QV8Context2DPixelArrayResource>(info.This());
 
     const int v = value->Uint32Value();
-    if (r && index > 0 && index < r->image.width() * r->image.height() * 4 && v > 0 && v <= 255) {
+    if (r && index >= 0 && index < r->image.width() * r->image.height() * 4 && v > 0 && v <= 255) {
         const int w = r->image.width();
-        const int h = r->image.height();
         const int row = (index / 4) / w;
         const int col = (index / 4) % w;
 
@@ -2608,8 +2709,6 @@ static v8::Handle<v8::Value> ctx2d_getImageData(const v8::Arguments &args)
         qreal w = args[2]->NumberValue();
         qreal h = args[3]->NumberValue();
         QImage image = r->context->canvas()->toImage(QRectF(x, y, w, h));
-        if (image.format() != QImage::Format_ARGB32)
-            image = image.convertToFormat(QImage::Format_ARGB32);
         v8::Local<v8::Object> imageData = qt_create_image_data(w, h, engine, image);
 
         return imageData;
@@ -3067,6 +3166,7 @@ QSGContext2DEngineData::QSGContext2DEngineData(QV8Engine *engine)
     ft->InstanceTemplate()->SetAccessor(v8::String::New("strokeStyle"), ctx2d_strokeStyle, ctx2d_strokeStyle_set, v8::External::Wrap(engine));
     ft->PrototypeTemplate()->Set(v8::String::New("createLinearGradient"), V8FUNCTION(ctx2d_createLinearGradient, engine));
     ft->PrototypeTemplate()->Set(v8::String::New("createRadialGradient"), V8FUNCTION(ctx2d_createRadialGradient, engine));
+    ft->PrototypeTemplate()->Set(v8::String::New("createConicalGradient"), V8FUNCTION(ctx2d_createConicalGradient, engine));
     ft->PrototypeTemplate()->Set(v8::String::New("createPattern"), V8FUNCTION(ctx2d_createPattern, engine));
     ft->InstanceTemplate()->SetAccessor(v8::String::New("lineCap"), ctx2d_lineCap, ctx2d_lineCap_set, v8::External::Wrap(engine));
     ft->InstanceTemplate()->SetAccessor(v8::String::New("lineJoin"), ctx2d_lineJoin, ctx2d_lineJoin_set, v8::External::Wrap(engine));
@@ -3212,8 +3312,12 @@ void QSGContext2D::reset()
     newState.clipPath = defaultClipPath;
     newState.clipPath.setFillRule(Qt::WindingFill);
 
-    newState.strokeStyle = Qt::black;
-    newState.fillStyle = Qt::black;
+    newState.strokeStyle = QColor(qRgba(1,1,1,1));
+    newState.fillStyle = QColor(qRgba(1,1,1,1));
+    newState.fillPatternRepeatX = false;
+    newState.fillPatternRepeatY = false;
+    newState.strokePatternRepeatX = false;
+    newState.strokePatternRepeatY = false;
     newState.fillRule = Qt::WindingFill;
     newState.globalAlpha = 1.0;
     newState.lineWidth = 1;

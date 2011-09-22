@@ -15,6 +15,9 @@ Canvas {
      var data = canvas.toDataURL();
      if (data == canvas.dataURL) {
        canvas.ok = true;
+     } else {
+       console.log("[" + canvas.dataURL + "]");
+       console.log("[" + canvas.toDataURL() + "]");
      }
    }
 }

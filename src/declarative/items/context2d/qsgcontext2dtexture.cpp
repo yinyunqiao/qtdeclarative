@@ -697,7 +697,7 @@ QPaintDevice* QSGContext2DImageTexture::beginPainting()
     lock();
     if (m_image.size() != m_canvasWindow.size()) {
         m_image = QImage(m_canvasWindow.size(), QImage::Format_ARGB32_Premultiplied);
-        m_image.fill(Qt::transparent);
+        m_image.fill(0x00000000);
     }
     unlock();
     return &m_image;

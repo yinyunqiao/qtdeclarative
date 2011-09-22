@@ -417,7 +417,8 @@ void QSGCanvasItem::componentComplete()
 {
     Q_D(QSGCanvasItem);
 
-    createContext();
+    if (!d->context)
+        createContext();
     createTexture();
 
 
@@ -512,9 +513,9 @@ QDeclarativeV8Handle QSGCanvasItem::getContext(const QString &contextId)
     Q_D(QSGCanvasItem);
     Q_UNUSED(contextId);
 
-    if (d->context)
-       return QDeclarativeV8Handle::fromHandle(d->context->v8value());
-    return QDeclarativeV8Handle::fromHandle(v8::Undefined());
+    if (!d->context)
+        createContext();
+    return QDeclarativeV8Handle::fromHandle(d->context->v8value());
 }
 
 /*!

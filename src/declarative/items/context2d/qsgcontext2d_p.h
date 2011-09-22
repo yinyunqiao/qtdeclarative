@@ -111,6 +111,10 @@ public:
         QPainterPath clipPath;
         QBrush strokeStyle;
         QBrush fillStyle;
+        bool fillPatternRepeatX:1;
+        bool fillPatternRepeatY:1;
+        bool strokePatternRepeatX:1;
+        bool strokePatternRepeatY:1;
         Qt::FillRule fillRule;
         qreal globalAlpha;
         qreal lineWidth;
