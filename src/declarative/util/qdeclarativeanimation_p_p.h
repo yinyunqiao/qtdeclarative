@@ -101,6 +101,8 @@ class Q_AUTOTEST_EXPORT QActionAnimation : public QAbstractAnimation2
 {
 public:
     QActionAnimation(QDeclarativeAbstractAnimation *animation = 0);
+    QActionAnimation(const QActionAnimation &other);
+
     QActionAnimation(QAbstractAnimationAction *action, QDeclarativeAbstractAnimation *animation = 0);
     ~QActionAnimation();
 
@@ -159,6 +161,9 @@ class QTickAnimationProxy : public QAbstractAnimation2
 {
 public:
     QTickAnimationProxy(T *instance, QDeclarativeAbstractAnimation *animation = 0) : QAbstractAnimation2(animation), m_instance(instance) {}
+    QTickAnimationProxy(const QTickAnimationProxy<T, method> &other)
+        : QAbstractAnimation2(other)
+        , m_instance(other.m_instance) {}
     virtual int duration() const { return -1; }
 protected:
     virtual void updateCurrentTime(int msec) { (m_instance->*method)(msec); }
@@ -193,7 +198,7 @@ public:
     QDeclarativeProperty defaultProperty;
 
     QDeclarativeAnimationGroup *group;
-    QAbstractAnimation2 *animationInstance;
+    QAbstractAnimation2Pointer animationInstance;
 
     static QDeclarativeProperty createProperty(QObject *obj, const QString &str, QObject *infoObj);
 };
